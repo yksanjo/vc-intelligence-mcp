@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-SEC EDGAR Form ADV Scraper
+SEC EDGAR Form ADV Scraper - Updated for 2026 API
 Extracts family office and VC firm data from SEC filings
 """
 
@@ -8,225 +8,237 @@ import requests
 import json
 import time
 import re
+import os
 from typing import Dict, List, Optional
 from datetime import datetime
 import pandas as pd
 
 class SECFormADVScraper:
     """Scrape investment adviser data from SEC EDGAR"""
-    
+
     def __init__(self):
         self.base_url = "https://www.sec.gov"
         self.headers = {
-            'User-Agent': 'VC Intelligence Research yoshi@soundraw.io',
+            'User-Agent': 'VC Intelligence Research yoshi@example.com',
+            'Accept': 'application/json, text/html, application/xml',
             'Accept-Encoding': 'gzip, deflate',
-            'Host': 'www.sec.gov'
         }
         self.session = requests.Session()
         self.session.headers.update(self.headers)
-        
-    def search_advisers(self, state: Optional[str] = None, limit: int = 100) -> List[Dict]:
-        """
-        Search for investment advisers using SEC EDGAR
-        
-        Args:
-            state: Two-letter state code (e.g., 'NY', 'CA') or None for all
-            limit: Maximum number of results to retrieve
-            
-        Returns:
-            List of adviser data dictionaries
-        """
-        print(f"🔍 Searching SEC EDGAR for investment advisers...")
-        
-        # SEC's Company Search API endpoint
-        search_url = f"{self.base_url}/cgi-bin/browse-edgar"
-        
-        advisers = []
-        
-        # Search for Form ADV filers
-        # We'll use the browse endpoint to get companies that filed Form ADV
-        params = {
-            'action': 'getcompany',
-            'type': 'ADV',
-            'count': limit,
-            'output': 'atom'
-        }
-        
-        if state:
-            params['State'] = state
-            
+
+    def get_company_tickers(self) -> List[Dict]:
+        """Get list of all companies from SEC company tickers JSON"""
+        print("📡 Fetching company list from SEC...")
+
+        # SEC provides a JSON file with all company tickers
+        url = "https://www.sec.gov/files/company_tickers.json"
+
         try:
-            print(f"📡 Fetching data from SEC EDGAR...")
-            response = self.session.get(search_url, params=params, timeout=30)
+            response = self.session.get(url, timeout=30)
             response.raise_for_status()
-            
-            # Parse the response
-            # Note: SEC returns Atom XML feed, we'll extract company info
-            content = response.text
-            
-            # Extract CIK numbers and company names from the feed
-            cik_pattern = r'<cik>(\d+)</cik>'
-            name_pattern = r'<title>(.+?)</title>'
-            
-            ciks = re.findall(cik_pattern, content)
-            names = re.findall(name_pattern, content)
-            
-            # Filter out feed metadata titles
-            company_names = [n for n in names if 'SEC' not in n and 'EDGAR' not in n]
-            
-            print(f"✅ Found {len(ciks)} potential investment advisers")
-            
-            # Get detailed data for each adviser
-            for i, (cik, name) in enumerate(zip(ciks[:limit], company_names[:limit])):
-                if i % 10 == 0:
-                    print(f"   Processing {i+1}/{min(limit, len(ciks))}...")
-                    time.sleep(0.1)  # Rate limiting - be nice to SEC servers
-                
-                adviser_data = self.get_adviser_details(cik, name)
-                if adviser_data:
-                    advisers.append(adviser_data)
-                    
+            data = response.json()
+
+            companies = []
+            for key, company in data.items():
+                companies.append({
+                    'cik': str(company['cik_str']),
+                    'name': company['title'],
+                    'ticker': company.get('ticker', '')
+                })
+
+            print(f"✅ Found {len(companies)} companies")
+            return companies
+
         except Exception as e:
-            print(f"❌ Error searching advisers: {e}")
-            
-        return advisers
-    
-    def get_adviser_details(self, cik: str, name: str) -> Optional[Dict]:
+            print(f"❌ Error fetching company list: {e}")
+            return []
+
+    def get_investment_advisers(self, limit: int = 200) -> List[Dict]:
         """
-        Get detailed information about an investment adviser
-        
-        Args:
-            cik: Central Index Key (SEC identifier)
-            name: Company name
-            
-        Returns:
-            Dictionary with adviser details or None
+        Get investment advisers by searching for common VC/PE/Family Office keywords
         """
-        # Pad CIK to 10 digits
-        cik_padded = cik.zfill(10)
-        
-        # Try to get submissions data
-        submissions_url = f"{self.base_url}/cgi-bin/browse-edgar?action=getcompany&CIK={cik}&type=ADV&dateb=&owner=exclude&count=1"
-        
-        try:
-            response = self.session.get(submissions_url, timeout=15)
-            
-            if response.status_code == 200:
-                # Extract basic info from the page
-                content = response.text
-                
-                # Try to find business address
-                address_match = re.search(r'<div class="mailer">(.*?)</div>', content, re.DOTALL)
-                address = ""
-                if address_match:
-                    address_text = address_match.group(1)
-                    address = re.sub(r'<[^>]+>', ' ', address_text).strip()
-                    address = ' '.join(address.split())
-                
-                return {
-                    'cik': cik,
-                    'name': name.strip(),
-                    'address': address,
-                    'sec_url': f"https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK={cik}&type=ADV",
+        print(f"🔍 Searching for investment advisers (limit: {limit})...")
+
+        companies = self.get_company_tickers()
+
+        # Keywords that indicate investment firms
+        investment_keywords = [
+            'capital', 'venture', 'partners', 'investment', 'fund',
+            'equity', 'management', 'advisors', 'advisory', 'holdings',
+            'asset', 'wealth', 'family office', 'trust'
+        ]
+
+        advisers = []
+
+        for company in companies:
+            name_lower = company['name'].lower()
+
+            # Check if company name contains investment-related keywords
+            if any(kw in name_lower for kw in investment_keywords):
+                adviser = {
+                    'cik': company['cik'],
+                    'name': company['name'],
+                    'ticker': company.get('ticker', ''),
+                    'sec_url': f"https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK={company['cik']}",
                     'scraped_at': datetime.now().isoformat()
                 }
-                
-        except Exception as e:
-            print(f"⚠️  Error getting details for {name}: {e}")
-            
-        return None
-    
-    def get_form_13f_holders(self, limit: int = 100) -> List[Dict]:
+                advisers.append(adviser)
+
+                if len(advisers) >= limit:
+                    break
+
+        print(f"✅ Found {len(advisers)} potential investment advisers")
+        return advisers
+
+    def get_recent_13f_filers(self, limit: int = 100) -> List[Dict]:
         """
-        Get institutional investors from 13F filings
-        These are investors managing $100M+ in securities
-        
-        Args:
-            limit: Maximum number of results
-            
-        Returns:
-            List of institutional investor data
+        Get recent 13F filers (institutional investors with $100M+ AUM)
+        Uses SEC's full-text search API
         """
         print(f"🔍 Searching for 13F institutional investors...")
-        
-        search_url = f"{self.base_url}/cgi-bin/browse-edgar"
+
+        # Use SEC's EFTS (EDGAR Full-Text Search) API
+        url = "https://efts.sec.gov/LATEST/search-index"
+
         params = {
-            'action': 'getcompany',
-            'type': '13F-HR',
-            'count': limit,
-            'output': 'atom'
+            'q': 'form:13F-HR',
+            'dateRange': 'custom',
+            'startdt': '2025-01-01',
+            'enddt': '2026-12-31',
+            'forms': '13F-HR',
         }
-        
+
         holders = []
-        
+
         try:
+            # Alternative: Use the company search
+            search_url = f"{self.base_url}/cgi-bin/browse-edgar"
+            params = {
+                'action': 'getcurrent',
+                'type': '13F-HR',
+                'company': '',
+                'dateb': '',
+                'owner': 'include',
+                'count': limit,
+                'output': 'atom'
+            }
+
             response = self.session.get(search_url, params=params, timeout=30)
-            response.raise_for_status()
-            
-            content = response.text
-            
-            # Extract data
-            cik_pattern = r'<cik>(\d+)</cik>'
-            name_pattern = r'<title>(.+?)</title>'
-            
-            ciks = re.findall(cik_pattern, content)
-            names = re.findall(name_pattern, content)
-            
-            company_names = [n for n in names if 'SEC' not in n and 'EDGAR' not in n]
-            
-            print(f"✅ Found {len(ciks)} institutional investors with 13F filings")
-            
-            for i, (cik, name) in enumerate(zip(ciks[:limit], company_names[:limit])):
-                if i % 10 == 0:
-                    print(f"   Processing {i+1}/{min(limit, len(ciks))}...")
-                    time.sleep(0.1)
-                
-                holders.append({
-                    'cik': cik,
-                    'name': name.strip(),
-                    'filing_type': '13F-HR',
-                    'sec_url': f"https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK={cik}&type=13F-HR",
-                    'scraped_at': datetime.now().isoformat()
-                })
-                
+
+            if response.status_code == 200:
+                content = response.text
+
+                # Parse Atom feed for company info
+                # Extract entries
+                entries = re.findall(r'<entry>(.*?)</entry>', content, re.DOTALL)
+
+                for entry in entries[:limit]:
+                    # Extract company name
+                    name_match = re.search(r'<title[^>]*>([^<]+)</title>', entry)
+                    cik_match = re.search(r'CIK=(\d+)', entry)
+
+                    if name_match and cik_match:
+                        name = name_match.group(1).strip()
+                        cik = cik_match.group(1)
+
+                        # Clean up name (remove form type suffix)
+                        name = re.sub(r'\s*\(13F-HR.*?\)\s*$', '', name)
+                        name = re.sub(r'\s*13F-HR.*$', '', name)
+
+                        holders.append({
+                            'cik': cik,
+                            'name': name.strip(),
+                            'filing_type': '13F-HR',
+                            'sec_url': f"https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK={cik}&type=13F-HR",
+                            'scraped_at': datetime.now().isoformat()
+                        })
+
+            print(f"✅ Found {len(holders)} 13F filers")
+
         except Exception as e:
             print(f"❌ Error searching 13F holders: {e}")
-            
+
         return holders
-    
-    def classify_investor_type(self, name: str) -> str:
-        """
-        Classify investor based on name patterns
-        
-        Args:
-            name: Company/fund name
-            
-        Returns:
-            Investor type classification
-        """
+
+    def get_adviser_details(self, cik: str) -> Optional[Dict]:
+        """Get detailed company information from SEC"""
+
+        # Use SEC's company facts API
+        cik_padded = cik.zfill(10)
+        url = f"https://data.sec.gov/submissions/CIK{cik_padded}.json"
+
+        try:
+            response = self.session.get(url, timeout=15)
+
+            if response.status_code == 200:
+                data = response.json()
+
+                addresses = data.get('addresses', {})
+                business = addresses.get('business', {})
+
+                return {
+                    'address': f"{business.get('street1', '')} {business.get('street2', '')}, {business.get('city', '')}, {business.get('stateOrCountry', '')} {business.get('zipCode', '')}".strip(),
+                    'city': business.get('city', ''),
+                    'state': business.get('stateOrCountry', ''),
+                    'phone': data.get('phone', ''),
+                    'sic': data.get('sic', ''),
+                    'sic_description': data.get('sicDescription', ''),
+                }
+
+        except Exception as e:
+            pass
+
+        return None
+
+    def classify_investor_type(self, name: str, sic_desc: str = '') -> str:
+        """Classify investor based on name and SIC patterns"""
         name_lower = name.lower()
-        
+        sic_lower = sic_desc.lower() if sic_desc else ''
+        combined = f"{name_lower} {sic_lower}"
+
         # Family office indicators
-        family_keywords = ['family', 'office', 'investment co', 'holdings', 'trust']
-        if any(kw in name_lower for kw in family_keywords):
+        if any(kw in combined for kw in ['family', 'office', 'trust', 'estate']):
             return 'Family Office'
-        
+
         # VC indicators
-        vc_keywords = ['venture', 'ventures', 'capital', 'partners', 'fund']
-        if any(kw in name_lower for kw in vc_keywords):
+        if any(kw in combined for kw in ['venture', 'ventures', 'seed', 'startup']):
             return 'Venture Capital'
-        
+
         # PE indicators
-        pe_keywords = ['equity', 'private equity', 'investment']
-        if any(kw in name_lower for kw in pe_keywords):
+        if any(kw in combined for kw in ['private equity', 'buyout', 'leveraged']):
             return 'Private Equity'
-        
+
         # Hedge fund indicators
-        hf_keywords = ['hedge', 'offshore', 'fund', 'asset management']
-        if any(kw in name_lower for kw in hf_keywords):
+        if any(kw in combined for kw in ['hedge', 'offshore', 'alternative']):
             return 'Hedge Fund'
-        
+
+        # Asset management
+        if any(kw in combined for kw in ['asset management', 'wealth', 'advisory']):
+            return 'Asset Management'
+
+        # Investment company
+        if any(kw in combined for kw in ['capital', 'partners', 'fund', 'investment']):
+            return 'Investment Company'
+
         return 'Other Institutional'
+
+    def extract_state(self, address: str) -> Optional[str]:
+        """Extract US state code from address"""
+        if not address:
+            return None
+
+        states = ['AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DE', 'FL', 'GA',
+                 'HI', 'ID', 'IL', 'IN', 'IA', 'KS', 'KY', 'LA', 'ME', 'MD',
+                 'MA', 'MI', 'MN', 'MS', 'MO', 'MT', 'NE', 'NV', 'NH', 'NJ',
+                 'NM', 'NY', 'NC', 'ND', 'OH', 'OK', 'OR', 'PA', 'RI', 'SC',
+                 'SD', 'TN', 'TX', 'UT', 'VT', 'VA', 'WA', 'WV', 'WI', 'WY', 'DC']
+
+        for state in states:
+            if f' {state} ' in address or f', {state}' in address or address.endswith(f' {state}'):
+                return state
+
+        return None
+
 
 def main():
     """Main execution function"""
@@ -234,51 +246,80 @@ def main():
     print("🚀 SEC EDGAR INVESTMENT INTELLIGENCE SCRAPER")
     print("=" * 60)
     print()
-    
+
     scraper = SECFormADVScraper()
-    
+
     # Collect data
     all_investors = []
-    
-    # Get Form ADV filers (investment advisers)
-    print("\n📊 Phase 1: Form ADV Investment Advisers")
+    seen_ciks = set()
+
+    # Get investment advisers from company list
+    print("\n📊 Phase 1: Investment Advisers from Company Registry")
     print("-" * 60)
-    advisers = scraper.search_advisers(limit=50)
-    all_investors.extend(advisers)
-    
+    advisers = scraper.get_investment_advisers(limit=150)
+
+    for adviser in advisers:
+        if adviser['cik'] not in seen_ciks:
+            seen_ciks.add(adviser['cik'])
+            all_investors.append(adviser)
+
     # Get 13F holders (institutional investors)
     print("\n📊 Phase 2: 13F Institutional Holders")
     print("-" * 60)
-    holders = scraper.get_form_13f_holders(limit=50)
-    all_investors.extend(holders)
-    
-    # Classify investors
-    print("\n🏷️  Classifying investors...")
-    for investor in all_investors:
-        investor['type'] = scraper.classify_investor_type(investor['name'])
-    
+    holders = scraper.get_recent_13f_filers(limit=100)
+
+    for holder in holders:
+        if holder['cik'] not in seen_ciks:
+            seen_ciks.add(holder['cik'])
+            all_investors.append(holder)
+
+    # Enrich with details
+    print("\n📊 Phase 3: Enriching investor data...")
+    print("-" * 60)
+
+    for i, investor in enumerate(all_investors):
+        if i % 20 == 0:
+            print(f"   Processing {i+1}/{len(all_investors)}...")
+            time.sleep(0.2)  # Rate limiting
+
+        details = scraper.get_adviser_details(investor['cik'])
+        if details:
+            investor.update(details)
+
+        # Classify investor type
+        investor['type'] = scraper.classify_investor_type(
+            investor['name'],
+            investor.get('sic_description', '')
+        )
+
+        # Extract state
+        if not investor.get('state'):
+            investor['state'] = scraper.extract_state(investor.get('address', ''))
+
     # Create DataFrame
     df = pd.DataFrame(all_investors)
-    
+
     # Summary statistics
     print("\n" + "=" * 60)
     print("📈 RESULTS SUMMARY")
     print("=" * 60)
     print(f"Total investors found: {len(df)}")
     print("\nBreakdown by type:")
-    if 'type' in df.columns:
+    if 'type' in df.columns and len(df) > 0:
         print(df['type'].value_counts().to_string())
-    
+
     # Save to CSV
-    output_file = '/home/claude/vc_database.csv'
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    output_file = os.path.join(script_dir, 'vc_database.csv')
     df.to_csv(output_file, index=False)
     print(f"\n💾 Data saved to: {output_file}")
-    
+
     # Show sample records
-    print("\n📋 Sample Records:")
-    print("-" * 60)
-    print(df.head(10).to_string(index=False))
-    
+    if len(df) > 0:
+        print("\n📋 Sample Records:")
+        print("-" * 60)
+        print(df[['name', 'type', 'state']].head(10).to_string(index=False))
+
     return df
 
 if __name__ == "__main__":
