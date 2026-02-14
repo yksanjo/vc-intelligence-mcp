@@ -1,6 +1,18 @@
 # VC Intelligence MCP
 
+<p align="center">
+  <img src="https://img.shields.io/badge/Version-1.0.0-blue" alt="Version">
+  <img src="https://img.shields.io/badge/License-MIT-green" alt="License">
+  <img src="https://img.shields.io/badge/Last%20Updated-February%202026-orange" alt="Last Updated">
+</p>
+
 A comprehensive investor intelligence platform that scrapes SEC filings and provides MCP (Model Context Protocol) tools for searching VCs, family offices, and institutional investors.
+
+## ⭐ Live Demo
+
+**🌐 Production URL**: [vc-intelligence.vercel.app](https://vc-intelligence.vercel.app)
+
+> **Note**: Demo video coming soon! For now, explore the live dashboard at the URL above.
 
 ## Features
 
@@ -9,6 +21,7 @@ A comprehensive investor intelligence platform that scrapes SEC filings and prov
 - **MCP Tools** - 6 built-in tools for AI agents to query investor data
 - **Web Dashboard** - Modern Next.js frontend for browsing investors
 - **Real-time Search** - Filter by type, sector, geography, and focus areas
+- **Automated Updates** - Scheduled scraping via GitHub Actions
 
 ## Tech Stack
 
@@ -62,6 +75,52 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000) to see the dashboard.
 
+## 📊 Sample Search Queries
+
+Here are example queries you can try on the dashboard or via API:
+
+### Find AI-Focused Investors in California
+```bash
+curl "http://localhost:3000/api/investors?has_ai_focus=true&state=CA"
+```
+
+### Find Family Offices in New York
+```bash
+curl "http://localhost:3000/api/investors?type=Family+Office&state=NY"
+```
+
+### Find Fintech VCs
+```bash
+curl "http://localhost:3000/api/investors?type=Venture+Capital&has_fintech_focus=true"
+```
+
+### Search for Music Tech Investors
+```bash
+curl "http://localhost:3000/api/investors?has_music_focus=true&limit=50"
+```
+
+### Get Database Statistics
+```bash
+curl "http://localhost:3000/api/stats"
+```
+
+### Full-Text Search
+```bash
+curl "http://localhost:3000/api/investors?search=Sequoia"
+```
+
+## 📈 Data Freshness
+
+The dashboard displays real-time data freshness indicators:
+
+| Indicator | Description |
+|-----------|-------------|
+| 🟢 Live | Data updated within last 24 hours |
+| 🟡 Recent | Data updated within last 7 days |
+| 🔴 Stale | Data older than 7 days |
+
+Last database update: Check `/api/stats` response for `last_updated` timestamp.
+
 ## Scraping Infrastructure
 
 ### Run SEC Scraper Locally
@@ -85,7 +144,7 @@ python upload_to_supabase.py ../lib/scrapers/vc_database.csv
 |----------|--------|-------------|
 | `/api/investors` | GET | Search investors with filters |
 | `/api/investors` | POST | Add new investor |
-| `/api/stats` | GET | Get database statistics |
+| `/api/stats` | GET | Get database statistics with timestamps |
 | `/api/scrape` | POST | Trigger scraping job |
 
 ### Query Parameters for `/api/investors`
@@ -109,6 +168,16 @@ This project provides MCP tools for AI agents. Available tools:
 4. **find_vc_firms** - Find VCs by stage and sector
 5. **get_ai_investors** - Get all AI/ML focused investors
 6. **get_database_stats** - Get overview statistics
+
+### Publishing to npm (Coming Soon)
+
+```bash
+# Build the MCP package
+npm run build:mcp
+
+# Publish to npm
+npm publish
+```
 
 ## Deployment
 
@@ -145,6 +214,8 @@ vc-intelligence-mcp/
 │   └── requirements.txt
 ├── supabase/              # Database schema
 │   └── schema.sql
+├── .github/               # GitHub Actions
+│   └── workflows/         # Scheduled scraping
 └── public/                # Static assets
 ```
 

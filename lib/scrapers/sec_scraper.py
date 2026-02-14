@@ -2,6 +2,7 @@
 """
 SEC EDGAR Form ADV Scraper - Updated for 2026 API
 Extracts family office and VC firm data from SEC filings
+With rate limiting to comply with SEC guidelines
 """
 
 import requests
@@ -12,9 +13,14 @@ import os
 from typing import Dict, List, Optional
 from datetime import datetime
 import pandas as pd
+from ratelimit import limits, sleep_and_retry
 
 class SECFormADVScraper:
-    """Scrape investment adviser data from SEC EDGAR"""
+    """Scrape investment adviser data from SEC EDGAR with rate limiting"""
+
+    # SEC rate limit: 10 requests per second max
+    SEC_RATE_LIMIT = 10
+    SEC_CALLS_PER_SECOND = 10  # Comply with SEC guidelines
 
     def __init__(self):
         self.base_url = "https://www.sec.gov"
@@ -25,6 +31,27 @@ class SECFormADVScraper:
         }
         self.session = requests.Session()
         self.session.headers.update(self.headers)
+        
+        # Rate limiting state
+        self.request_times = []
+        self.min_request_interval = 1.0 / self.SEC_CALLS_PER_SECOND
+
+    def _rate_limit(self):
+        """Apply rate limiting to comply with SEC guidelines"""
+        current_time = time.time()
+        
+        # Remove old request times (older than 1 second)
+        self.request_times = [t for t in self.request_times if current_time - t < 1.0]
+        
+        # If we've made too many requests, wait
+        if len(self.request_times) >= self.SEC_CALLS_PER_SECOND:
+            sleep_time = 1.0 - (current_time - self.request_times[0])
+            if sleep_time > 0:
+                print(f"   ⏳ Rate limiting: waiting {sleep_time:.2f}s...")
+                time.sleep(sleep_time)
+        
+        # Record this request
+        self.request_times.append(time.time())
 
     def get_company_tickers(self) -> List[Dict]:
         """Get list of all companies from SEC company tickers JSON"""
@@ -34,6 +61,7 @@ class SECFormADVScraper:
         url = "https://www.sec.gov/files/company_tickers.json"
 
         try:
+            self._rate_limit()  # Apply rate limiting
             response = self.session.get(url, timeout=30)
             response.raise_for_status()
             data = response.json()
@@ -123,6 +151,7 @@ class SECFormADVScraper:
                 'output': 'atom'
             }
 
+            self._rate_limit()  # Apply rate limiting
             response = self.session.get(search_url, params=params, timeout=30)
 
             if response.status_code == 200:
@@ -161,7 +190,10 @@ class SECFormADVScraper:
         return holders
 
     def get_adviser_details(self, cik: str) -> Optional[Dict]:
-        """Get detailed company information from SEC"""
+        """Get detailed company information from SEC with rate limiting"""
+
+        # Apply rate limiting
+        self._rate_limit()
 
         # Use SEC's company facts API
         cik_padded = cik.zfill(10)

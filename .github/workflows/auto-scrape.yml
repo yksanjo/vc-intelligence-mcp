@@ -1,0 +1,90 @@
+# GitHub Actions Workflow: SEC EDGAR Auto-Scraper
+# Runs daily at 2:00 AM UTC to keep investor database fresh
+
+name: SEC EDGAR Auto-Scrape
+
+on:
+  # Run daily at 2:00 AM UTC
+  schedule:
+    - cron: '0 2 * * *'
+  
+  # Allow manual triggering
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: 'Number of investors to scrape'
+        required: false
+        default: '500'
+        type: string
+
+  # Run on push to main for certain files
+  push:
+    paths:
+      - 'lib/scrapers/**'
+      - '.github/workflows/auto-scrape.yml'
+    branches:
+      - main
+
+jobs:
+  scrape:
+    name: Scrape SEC EDGAR Data
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests pandas python-dotenv
+          
+      - name: Run SEC Scraper
+        env:
+          SEC_USER_AGENT: 'VC Intelligence GitHub Actions scraper@example.com'
+          SCRAPE_LIMIT: ${{ github.event.inputs.limit || '500' }}
+        run: |
+          cd lib/scrapers
+          python sec_scraper.py --limit $SCRAPE_LIMIT
+          
+      - name: Upload data as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: scraped-investors
+          path: lib/scrapers/vc_database.csv
+          retention-days: 7
+          
+      - name: Commit updated data
+        if: github.event_name == 'schedule'
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          
+          # Check if data changed
+          if git diff --exit-code lib/scrapers/vc_database.csv; then
+            echo "No changes to commit"
+          else
+            git add lib/scrapers/vc_database.csv
+            git commit -m "Auto-update: Scrape $(date +%Y-%m-%d)"
+            git push
+          fi
+
+  notify:
+    name: Notify on Completion
+    needs: scrape
+    runs-on: ubuntu-latest
+    if: always()
+    
+    steps:
+      - name: Create status summary
+        run: |
+          echo "## SEC EDGAR Scraper Status" >> $GITHUB_STEP_SUMMARY
+          echo "- Workflow: ${{ github.workflow }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Status: ${{ needs.scrape.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Run: ${{ github.run_number }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Timestamp: $(date)" >> $GITHUB_STEP_SUMMARY

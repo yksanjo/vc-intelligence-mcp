@@ -57,6 +57,34 @@ export async function GET() {
         return acc;
       }, {} as Record<string, number>);
 
+    // Get the most recent scraped_at timestamp for data freshness
+    const { data: recentData } = await supabase
+      .from("investors")
+      .select("scraped_at")
+      .not("scraped_at", "is", null)
+      .order("scraped_at", { ascending: false })
+      .limit(1);
+
+    const lastUpdated = recentData && recentData.length > 0 
+      ? recentData[0].scraped_at 
+      : null;
+
+    // Calculate data freshness status
+    let freshnessStatus = "unknown";
+    if (lastUpdated) {
+      const lastUpdateDate = new Date(lastUpdated);
+      const now = new Date();
+      const diffHours = (now.getTime() - lastUpdateDate.getTime()) / (1000 * 60 * 60);
+      
+      if (diffHours <= 24) {
+        freshnessStatus = "live";
+      } else if (diffHours <= 168) { // 7 days
+        freshnessStatus = "recent";
+      } else {
+        freshnessStatus = "stale";
+      }
+    }
+
     return NextResponse.json({
       total_investors: totalCount || 0,
       by_type: byType,
@@ -64,6 +92,8 @@ export async function GET() {
       ai_investors: aiCount || 0,
       fintech_investors: fintechCount || 0,
       music_investors: musicCount || 0,
+      last_updated: lastUpdated,
+      freshness_status: freshnessStatus,
     });
   } catch (error) {
     console.error("Stats API error:", error);
