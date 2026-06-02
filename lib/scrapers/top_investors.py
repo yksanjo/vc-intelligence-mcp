@@ -133,7 +133,9 @@ TOP_PE_FIRMS = [
 def upload_to_supabase(investors):
     """Upload curated investors to Supabase"""
     url = os.environ.get('SUPABASE_URL', 'https://qjrunbltdylgtkzaztjc.supabase.co')
-    key = os.environ.get('SUPABASE_SERVICE_ROLE_KEY', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFqcnVuYmx0ZHlsZ3RremF6dGpjIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2ODM5ODM1NywiZXhwIjoyMDgzOTc0MzU3fQ.jHhkZJZWl0YPIrFFo7tkmTcjBo5UByUxXaVPUAEkqhY')
+    key = os.environ.get('SUPABASE_SERVICE_ROLE_KEY', '')
+    if not key:
+        raise RuntimeError('SUPABASE_SERVICE_ROLE_KEY is not set — export it before running.')
 
     supabase = create_client(url, key)
 
