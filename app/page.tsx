@@ -34,32 +34,33 @@ export default function Home() {
   const [filterType, setFilterType] = useState<string>("");
   const [filterFocus, setFilterFocus] = useState<string>("");
 
+  const fetchData = () =>
+    Promise.all([fetch("/api/investors"), fetch("/api/stats")])
+      .then(async ([investorsRes, statsRes]) => {
+        if (investorsRes.ok) {
+          const data = await investorsRes.json();
+          setInvestors(data.investors || []);
+        }
+
+        if (statsRes.ok) {
+          const data = await statsRes.json();
+          setStats(data);
+        }
+      })
+      .catch((error) => {
+        console.error("Error fetching data:", error);
+      })
+      .finally(() => {
+        setLoading(false);
+      });
+
   useEffect(() => {
     fetchData();
   }, []);
 
-  const fetchData = async () => {
+  const handleRefresh = () => {
     setLoading(true);
-    try {
-      const [investorsRes, statsRes] = await Promise.all([
-        fetch("/api/investors"),
-        fetch("/api/stats"),
-      ]);
-
-      if (investorsRes.ok) {
-        const data = await investorsRes.json();
-        setInvestors(data.investors || []);
-      }
-
-      if (statsRes.ok) {
-        const data = await statsRes.json();
-        setStats(data);
-      }
-    } catch (error) {
-      console.error("Error fetching data:", error);
-    } finally {
-      setLoading(false);
-    }
+    fetchData();
   };
 
   const filteredInvestors = investors.filter((investor) => {
@@ -93,7 +94,7 @@ export default function Home() {
               </div>
             </div>
             <button
-              onClick={fetchData}
+              onClick={handleRefresh}
               className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
             >
               <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
